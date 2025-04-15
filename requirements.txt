@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+openai
+pytesseract
+python-multipart
+pillow
+PyMuPDF
+passlib[bcrypt]
+python-jose[cryptography]
