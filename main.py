@@ -11,15 +11,15 @@ import pytesseract
 from PIL import Image
 import fitz  # PyMuPDF
 
+import db
 from auth import (
-    usuarios,
     verify_password,
     get_password_hash,
     create_access_token,
     get_current_user,
 )
 from content_agent.router import router as content_router
-from content_agent.store import inicializar_db
+from content_agent.store import inicializar_db as inicializar_db_conteudo
 from content_agent.scheduler import iniciar_scheduler, parar_scheduler
 
 # Configurações OpenAI
@@ -36,7 +36,7 @@ class Token(BaseModel):
     token_type: str
 
 class Paciente(BaseModel):
-    id: Optional[str]
+    id: Optional[str] = None
     nome: str
     data_nascimento: str
     cpf: str
@@ -69,15 +69,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-pacientes = {}
-atendimentos = {}
-
 app.include_router(content_router)
 
 
 @app.on_event("startup")
 def iniciar_agente_de_conteudo():
-    inicializar_db()
+    db.inicializar_db()
+    inicializar_db_conteudo()
     if os.getenv("CONTENT_AGENT_SCHEDULER", "true").lower() == "true":
         iniciar_scheduler()
 
@@ -89,15 +87,15 @@ def parar_agente_de_conteudo():
 
 @app.post("/auth/signup")
 def signup(usuario: Usuario):
-    if usuario.email in usuarios:
+    if db.obter_usuario(usuario.email):
         raise HTTPException(status_code=400, detail="Usuário já existe")
     hashed = get_password_hash(usuario.senha)
-    usuarios[usuario.email] = {"email": usuario.email, "nome": usuario.nome, "hashed_password": hashed}
+    db.criar_usuario(usuario.email, usuario.nome, hashed)
     return {"message": "Usuário criado com sucesso"}
 
 @app.post("/auth/login", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = usuarios.get(form_data.username)
+    user = db.obter_usuario(form_data.username)
     if not user or not verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Credenciais inválidas")
     token = create_access_token(data={"sub": user["email"]})
@@ -106,12 +104,12 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
 @app.post("/patients")
 def criar_paciente(paciente: Paciente, current_user: dict = Depends(get_current_user)):
     paciente.id = str(uuid.uuid4())
-    pacientes[paciente.id] = paciente
+    db.criar_paciente(paciente.dict())
     return paciente
 
 @app.get("/patients/{paciente_id}")
 def get_paciente(paciente_id: str, current_user: dict = Depends(get_current_user)):
-    return pacientes.get(paciente_id)
+    return db.obter_paciente(paciente_id)
 
 @app.post("/appointments")
 def registrar_atendimento(atendimento: Atendimento, current_user: dict = Depends(get_current_user)):
@@ -120,7 +118,7 @@ def registrar_atendimento(atendimento: Atendimento, current_user: dict = Depends
         atendimento.resumo_ia = gerar_resumo_clinico(atendimento)
     except Exception as e:
         atendimento.resumo_ia = f"Erro: {e}"
-    atendimentos[atendimento_id] = atendimento
+    db.criar_atendimento(atendimento_id, atendimento.dict())
     return {"id": atendimento_id, **atendimento.dict()}
 
 @app.post("/exams/upload")

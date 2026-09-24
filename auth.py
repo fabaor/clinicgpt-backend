@@ -1,5 +1,8 @@
 # auth.py
 """Autenticação e utilitários de segurança do ClinicGPT (compartilhado entre módulos)."""
+import logging
+import os
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -8,14 +11,24 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
-SECRET_KEY = "clinicgptsecretkey"
+import db
+
+logger = logging.getLogger("auth")
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    SECRET_KEY = secrets.token_hex(32)
+    logger.warning(
+        "SECRET_KEY não definida em variável de ambiente — usando uma chave aleatória "
+        "gerada nesta execução. Tokens emitidos serão invalidados a cada reinício do "
+        "servidor. Defina SECRET_KEY no ambiente antes de usar em produção."
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-
-usuarios = {}
 
 
 def verify_password(plain, hashed):
@@ -37,8 +50,12 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub")
-        if email is None or email not in usuarios:
+        if email is None:
             raise HTTPException(status_code=401, detail="Token inválido")
-        return usuarios[email]
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido")
+
+    usuario = db.obter_usuario(email)
+    if usuario is None:
+        raise HTTPException(status_code=401, detail="Token inválido")
+    return usuario

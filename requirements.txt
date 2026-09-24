@@ -6,7 +6,7 @@ python-multipart
 pillow
 PyMuPDF
 passlib
-bcrypt
+bcrypt==4.0.1
 python-jose[cryptography]
 requests
 APScheduler
