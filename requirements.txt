@@ -8,3 +8,5 @@ PyMuPDF
 passlib
 bcrypt
 python-jose[cryptography]
+requests
+APScheduler

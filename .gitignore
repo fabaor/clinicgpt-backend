@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+content_agent.db
+uploaded_*
+.DS_Store

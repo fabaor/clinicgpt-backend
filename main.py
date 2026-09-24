@@ -1,7 +1,7 @@
 # main.py
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Optional
 import uuid
@@ -10,41 +10,20 @@ import os
 import pytesseract
 from PIL import Image
 import fitz  # PyMuPDF
-from passlib.context import CryptContext
-from jose import JWTError, jwt
-from datetime import datetime, timedelta
 
-# Configurações OpenAI e segurança
+from auth import (
+    usuarios,
+    verify_password,
+    get_password_hash,
+    create_access_token,
+    get_current_user,
+)
+from content_agent.router import router as content_router
+from content_agent.store import inicializar_db
+from content_agent.scheduler import iniciar_scheduler, parar_scheduler
+
+# Configurações OpenAI
 openai.api_key = os.getenv("OPENAI_API_KEY")
-SECRET_KEY = "clinicgptsecretkey"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def verify_password(plain, hashed):
-    return pwd_context.verify(plain, hashed)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-usuarios = {}
-
-def get_current_user(token: str = Depends(oauth2_scheme)):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email = payload.get("sub")
-        if email is None or email not in usuarios:
-            raise HTTPException(status_code=401, detail="Token inválido")
-        return usuarios[email]
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Token inválido")
 
 # Modelos
 class Usuario(BaseModel):
@@ -92,6 +71,21 @@ app.add_middleware(
 
 pacientes = {}
 atendimentos = {}
+
+app.include_router(content_router)
+
+
+@app.on_event("startup")
+def iniciar_agente_de_conteudo():
+    inicializar_db()
+    if os.getenv("CONTENT_AGENT_SCHEDULER", "true").lower() == "true":
+        iniciar_scheduler()
+
+
+@app.on_event("shutdown")
+def parar_agente_de_conteudo():
+    parar_scheduler()
+
 
 @app.post("/auth/signup")
 def signup(usuario: Usuario):
